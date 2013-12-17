@@ -179,8 +179,9 @@
 				            })                  
 				        .on("mouseout", function(d) {       
 				            div.transition()        
-				                .duration(500)      
-				                .style("opacity", 0);   
+				                .duration(200)      
+				                .style("opacity", .9);      
+				            div .html(d[0].self.getParent().getLabel())  
 				        });
 								
 				
