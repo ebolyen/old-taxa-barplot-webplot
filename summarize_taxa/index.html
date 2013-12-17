@@ -1,0 +1,217 @@
+<html>
+	<head>
+	<style>
+		div.tooltip {   
+		  position: absolute;           
+		  text-align: center;                    
+		  padding: 2px;             
+		  font: 12px sans-serif;        
+		  background: lightsteelblue;   
+		  border: 0px;      
+		  border-radius: 8px;           
+		  pointer-events: none;         
+		}
+	</style>
+
+	<script src="http://d3js.org/d3.v2.min.js?2.8.1"></script>
+		<script>
+			function createNode(id, abundance) {
+		
+				var node = {};
+				var children = [];
+				var hashedChildren = {}
+			
+				node._parent = null;
+			
+				node.id = id;
+				node.abundance = abundance;
+				
+				function getLabel(node) {
+					if(node.hasParent())
+						return getLabel(node.getParent()) + "; " + node.id;
+					else
+						return node.id;
+				}
+				
+				node.hasChildren = function() {
+					return children.length != 0;
+				}
+				node.addChild = function(_) {
+					children.push(_);
+					_._parent = node;
+					hashedChildren[_.id] = _;
+				}
+				node.getChild = function(id) {
+					return hashedChildren[id];
+				}
+				node.hasParent = function() {
+					return node._parent != null;
+				}
+				node.getParent = function() {
+					return node._parent;
+				}
+				node.getChildren = function() {
+					return children;
+				}
+				node.getLabel = function() {
+					return getLabel(node)
+				}
+				return node;
+			
+			}
+			
+			function calculateAbundanceFromLeaves(node) {
+				if(node.hasChildren()) {
+					var children = node.getChildren();
+					var sum = [];
+					for(var i=0; i<children.length; i++) {
+						sum = calculateAbundanceFromLeaves(children[i]).map(function(d, idx){
+							return d + (sum[idx] ? sum[idx]:0);
+						});
+					}
+					node.abundance = sum;
+					return sum;
+					
+				} else {
+					node.abundance = node.abundance.map(function(d){return +d});
+					return node.abundance;
+					
+				}
+			
+			}
+			
+			
+			// From http://stackoverflow.com/questions/1418050/string-strip-for-javascript
+			if(typeof(String.prototype.trim) === "undefined")
+			{
+			    String.prototype.trim = function() 
+			    {
+			        return String(this).replace(/^\s+|\s+$/g, '');
+			    };
+			}
+			
+			
+			function buildBranchFromLeaves(root, list, value) {
+				if(list.length == 0) {
+					root.abundance = value;
+					return
+				}
+			
+				var childID = list.shift();
+				if(!root.getChild(childID)) {
+					root.addChild(createNode(childID, value))
+				}
+				buildBranchFromLeaves(root.getChild(childID), list, value)
+			}
+	
+			
+	
+		</script>
+	</head>
+	<body>
+		<script>
+			var sortMap = function(i) {
+				return i;
+			}
+			
+		
+			var margin = {top: 20, right: 30, bottom: 30, left: 40},
+				    width = 960 - margin.left - margin.right,
+				    height = 500 - margin.top - margin.bottom;
+				    
+			var svg = d3.select("body").append("svg")
+				    .attr("width", width + margin.left + margin.right)
+				    .attr("height", height + margin.top + margin.bottom)
+				    .append("g")
+				    .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+			var div = d3.select("body").append("div")   
+				    .attr("class", "tooltip")               
+				    .style("opacity", 0);	    
+			function drawTree(tree, max) {
+				svg.selectAll(".layer").remove();
+				
+				var data = tree.getChildren().map(function(d) { 
+					return d.abundance.map(function(v, i){
+						return {
+							x:sortMap(i),
+							y:v,
+							y0:0,
+							self: d
+						}
+					});
+				});
+				
+				var colors = d3.scale.category10();
+				
+				var x = d3.scale.linear()
+				    .range([0, width])
+				    .domain([0,11]);
+				
+				var y = d3.scale.linear()
+				    .range([height, 0])
+				    .domain([0,max]);
+				
+				var stack = d3.layout.stack()
+     				 .offset("zero")
+    
+				var layers = stack(data);
+				
+				var area = d3.svg.area()
+				    .x(function(d, i) { return x(i); })
+				    .y0(function(d) { return y(d.y0); })
+				    .y1(function(d) { return y(d.y0 + d.y); });
+				
+				svg.selectAll(".layer")
+				      .data(layers)
+				      .enter().append("path")
+				      .attr("class", "layer")
+				      .attr("d", function(d) { return area(d); })
+				      .style("fill", function(d, i) { return colors(i); })
+				      .on("click", function(e){
+				      	drawTree(e[0].self, 
+				      		d3.max(e[0].self.abundance))
+				      })
+				      .on("mouseover", function(d) {   
+				            div.transition()        
+				                .duration(200)      
+				                .style("opacity", .9);      
+				            div .html(d[0].self.getLabel())  
+				            })                  
+				        .on("mouseout", function(d) {       
+				            div.transition()        
+				                .duration(500)      
+				                .style("opacity", 0);   
+				        });
+								
+				
+			}
+				    	
+			d3.text("observation_table.Biom_sorted_L6.txt", "text/csv", function(tsv){
+				var rows = d3.tsv.parseRows(tsv);
+				var ids = [];
+				var tree = createNode('root', [])
+				for(var i=1; i<rows[0].length; i++) {
+					ids.push(rows[0][i]);
+				}
+				
+				for(var i=1; i<rows.length; i++) {
+					var row = rows[i];
+					
+					buildBranchFromLeaves(tree, 
+										row[0].split(";").map(function(s){return s.trim()}), 
+								  		ids.map(function(d, idx){
+								  			return row[idx+1]
+								  		}));
+
+					
+				}
+				
+			
+				
+				calculateAbundanceFromLeaves(tree);
+				
+				drawTree(tree, 1)
+			})
+		</script>
+	</body>
+</html>
